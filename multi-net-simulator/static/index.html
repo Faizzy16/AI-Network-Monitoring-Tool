@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>5G Multi-Network Simulator Dashboard</title>
+  <style>
+    :root {
+      --accent: #00d8ff;
+      --bg1: #0a0f14;
+      --bg2: #010409;
+      --card: rgba(10, 15, 20, 0.9);
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #9aa6b2;
+      --ok: #18d47b;
+      --warn: #ffcf5a;
+      --bad: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
+      overflow: hidden;
+      color: var(--text);
+      background: radial-gradient(circle at center, var(--bg1) 0%, var(--bg2) 80%);
+      transition: background 0.6s ease;
+      position: relative;
+    }
+    header {
+      background: var(--card);
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 12px;
+      align-items: center;
+      z-index: 2;
+      position: relative;
+    }
+    h2 { margin: 0; color: var(--accent); font-weight: 700; letter-spacing: .2px; }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .controls .group { display: inline-flex; background: #0c1220; border:1px solid #1e2a40; padding:4px; border-radius: 999px; }
+    .btn {
+      margin: 0;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.06s ease, background 0.15s ease, box-shadow 0.15s ease;
+      outline: none;
+    }
+    .btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.06); }
+    .btn:active { transform: translateY(0); }
+    .btn.active {
+      background: var(--accent);
+      color: #000;
+      box-shadow: 0 0 0 3px rgba(0,216,255,0.25);
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 10px; border-radius: 999px; font-weight: 700;
+      background: #0c1220; border:1px solid #1e2a40; color:#b6c2d1;
+    }
+    .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+    .badge.ok .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+    .badge.warn .dot { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
+    .badge.bad .dot { background: var(--bad); box-shadow: 0 0 10px var(--bad); }
+    .right { justify-self: end; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    #tooltip {
+      position: absolute; pointer-events: none;
+      background: rgba(0,0,0,0.85); padding: 6px 10px; border-radius: 6px;
+      color: #fff; font-size: 13px; display: none; z-index: 10; white-space: nowrap;
+    }
+    canvas { display: block; width: 100vw; height: calc(100vh - 84px); background: transparent; }
+
+    /* Background wave */
+    .wave {
+      position: absolute; top: 0; left: 0; width: 200%; height: 100%;
+      opacity: 0.12;
+      background: radial-gradient(circle at center, var(--wave-color, #00ffff) 0%, transparent 70%);
+      transform: translateX(-50%);
+      animation: waveMove 10s linear infinite;
+      z-index: 0;
+    }
+    @keyframes waveMove { 0% { transform: translateX(-50%);} 100% { transform: translateX(0%);} }
+
+    /* Toast */
+    #toast {
+      position: fixed; right: 16px; bottom: 16px; z-index: 5;
+      padding: 10px 12px; border-radius: 10px; border:1px solid #1f2a40;
+      background: #0c1220; color: var(--text); opacity: 0; transform: translateY(10px);
+      transition: opacity .2s, transform .2s;
+      font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.35);
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ===== Explain panel (NEW) ===== */
+    .explain {
+      position: fixed; right: 16px; bottom: 16px; z-index: 6;
+      width: 360px; max-width: calc(100vw - 32px);
+      background: #0c1220; color: var(--text);
+      border: 1px solid #1e2a40; border-radius: 12px;
+      box-shadow: 0 10px 28px rgba(0,0,0,.45);
+      overflow: hidden; display: none;
+    }
+    .explain header {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:10px 12px; background:#0f1628; border-bottom:1px solid #1e2a40;
+    }
+    .explain header h4 { margin:0; font-size:14px; }
+    .explain header button {
+      background:#18223a; color:#c9d3e0; border:1px solid #263453;
+      border-radius:8px; padding:4px 8px; cursor:pointer; font-weight:600;
+    }
+    .explain .content { padding:12px; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .explain .row { margin:6px 0; }
+    .explain .pill { display:inline-block; margin-right:6px; padding:2px 8px;
+      border:1px solid #2c3a5e; border-radius:999px; font-weight:700; }
+    .explain .hint { color: var(--muted); margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="wave" id="wave"></div>
+  <header>
+    <div class="row">
+      <h2>5G Multi-Network Simulator Dashboard</h2>
+    </div>
+
+    <div class="controls row" style="justify-content:center;">
+      <div class="group" id="techGroup" role="tablist" aria-label="Select Technology">
+        <button class="btn" data-group="tech" data-val="3g"  aria-pressed="false">3G</button>
+        <button class="btn" data-group="tech" data-val="4g"  aria-pressed="false">4G</button>
+        <button class="btn" data-group="tech" data-val="lte" aria-pressed="false">LTE</button>
+        <button class="btn active" data-group="tech" data-val="5g" aria-pressed="true">5G</button>
+      </div>
+    </div>
+
+    <div class="right">
+      <span class="badge" id="techBadge"><span class="dot"></span><span id="techText">Tech: 5G</span></span>
+      <span class="badge warn" id="faultBadge"><span class="dot"></span><span id="faultText">Fault: None</span></span>
+      <div class="group" id="faultGroup" role="tablist" aria-label="Inject Fault">
+        <button class="btn active" data-group="fault" data-val="none" aria-pressed="true">No Fault</button>
+        <button class="btn" data-group="fault" data-val="rf" aria-pressed="false">RF Degrade</button>
+        <button class="btn" data-group="fault" data-val="congestion" aria-pressed="false">Backhaul Congestion</button>
+        <button class="btn" data-group="fault" data-val="drop" aria-pressed="false">Transient Drop</button>
+      </div>
+    </div>
+  </header>
+
+  <canvas id="map"></canvas>
+  <div id="tooltip"></div>
+  <div id="toast"></div>
+
+  <!-- ===== Explain panel (NEW) ===== -->
+  <div id="explain" class="explain" aria-live="polite">
+    <header>
+      <h4>How this metric was generated</h4>
+      <button onclick="toggleExplain(false)">Close</button>
+    </header>
+    <div id="explainBody" class="content"></div>
+  </div>
+
+  <script>
+    // ===== Canvas setup =====
+    const canvas = document.getElementById("map");
+    const ctx = canvas.getContext("2d");
+    const tooltip = document.getElementById("tooltip");
+    const wave = document.getElementById("wave");
+    const toast = document.getElementById("toast");
+    const techBadge = document.getElementById("techBadge");
+    const techText  = document.getElementById("techText");
+    const faultBadge = document.getElementById("faultBadge");
+    const faultText  = document.getElementById("faultText");
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight - document.querySelector('header').offsetHeight;
+    };
+    window.addEventListener('resize', resize); resize();
+
+    // ===== Visual profiles per tech =====
+    const techProfiles = {
+      "3g":  { bg: "#1a1005", wave: "#ffaa00", colorGlow:"#ffaa00", rsrpRange: [-110,-85], sinrRange:[0,8],   thrRange:[0.5,2]  },
+      "4g":  { bg: "#08151a", wave: "#33ccff", colorGlow:"#33ccff", rsrpRange: [-100,-80], sinrRange:[5,15],  thrRange:[10,40] },
+      "lte": { bg: "#091a10", wave: "#44ff99", colorGlow:"#44ff99", rsrpRange: [ -95,-75], sinrRange:[10,20], thrRange:[20,60] },
+      "5g":  { bg: "#12001f", wave: "#ff66ff", colorGlow:"#ff66ff", rsrpRange: [ -85,-65], sinrRange:[15,30], thrRange:[50,200]}
+    };
+
+    const colors = { "cell-A":"#ff4d4d", "cell-B":"#4dff88", "cell-C":"#4d88ff" };
+
+    // Layout helpers
+    const cellWidth = () => canvas.width / 3;
+    const cellHeight = () => canvas.height;
+    const centers = () => ([
+      { id: "cell-A", x: cellWidth()/2,     y: canvas.height/2 },
+      { id: "cell-B", x: cellWidth()*1.5,   y: canvas.height/2 },
+      { id: "cell-C", x: cellWidth()*2.5,   y: canvas.height/2 }
+    ]);
+
+    // State
+    let currentTech = "5g";
+    let currentFault = "none";
+    let uePositions = {};
+    let lastMetrics = {};
+
+    // ===== UI helpers =====
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add('show');
+      setTimeout(()=> toast.classList.remove('show'), 1200);
+    }
+
+    function setActive(groupName, value) {
+      document.querySelectorAll(`[data-group="${groupName}"]`).forEach(btn => {
+        const on = btn.dataset.val === value;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+
+    function updateTechVisuals(t) {
+      const prof = techProfiles[t];
+      document.body.style.background = prof.bg;
+      wave.style.setProperty("--wave-color", prof.wave);
+      techText.textContent = "Tech: " + t.toUpperCase();
+      techBadge.style.boxShadow = `0 0 0 3px ${prof.wave}33`;
+    }
+
+    function updateFaultBadge(f) {
+      faultText.textContent = "Fault: " + (f === 'none' ? "None" :
+        f === 'rf' ? "RF Degrade" :
+        f === 'congestion' ? "Backhaul Congestion" : "Transient Drop");
+      faultBadge.classList.remove('ok','warn','bad');
+      if (f === 'none')      faultBadge.classList.add('ok');
+      else if (f === 'rf')   faultBadge.classList.add('bad');
+      else if (f === 'drop') faultBadge.classList.add('warn');
+      else                   faultBadge.classList.add('warn'); // congestion
+    }
+
+    // ===== Drawing =====
+    function drawCells() {
+      const ids = ["cell-A","cell-B","cell-C"];
+      const cw = cellWidth(), ch = cellHeight();
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = colors[ids[i]] + "22";
+        ctx.fillRect(i*cw, 0, cw, ch);
+        ctx.strokeStyle = colors[ids[i]];
+        ctx.lineWidth = 2;
+        ctx.strokeRect(i*cw, 0, cw, ch);
+        ctx.fillStyle = "#fff";
+        ctx.font = "16px system-ui";
+        ctx.fillText(ids[i], i*cw + 20, 30);
+      }
+    }
+
+    function spawnUEs(ues) {
+      const ctrs = centers();
+      for (let i = 0; i < ues.length; i++) {
+        const ueId = ues[i];
+        const c = ctrs[i % 3];
+        const speed = 0.15 + Math.random() * 0.2;
+        const angle = Math.random() * 2 * Math.PI;
+        uePositions[ueId] = {
+          id: ueId, cell: c.id,
+          x: c.x + (Math.random() - 0.5) * cellWidth() * 0.8,
+          y: c.y + (Math.random() - 0.5) * cellHeight() * 0.6,
+          dx: Math.cos(angle) * speed,
+          dy: Math.sin(angle) * speed
+        };
+      }
+    }
+
+    function updateUEs() {
+      const cw = cellWidth(), ch = cellHeight();
+      for (const u of Object.values(uePositions)) {
+        u.x += u.dx; u.y += u.dy;
+        if (u.y < 20 || u.y > ch - 20) u.dy *= -1;
+        const oldCell = u.cell;
+        const zoneIndex = Math.floor(u.x / cw);
+        u.cell = zoneIndex === 0 ? "cell-A" : zoneIndex === 1 ? "cell-B" : "cell-C";
+        if (u.x < 5 || u.x > canvas.width - 5) u.dx *= -1;
+        if (oldCell !== u.cell && lastMetrics[u.id]) {
+          lastMetrics[u.id].cell = u.cell;
+        }
+      }
+    }
+
+    function drawUEs() {
+      for (const u of Object.values(uePositions)) {
+        ctx.beginPath();
+        ctx.arc(u.x, u.y, 6, 0, 2*Math.PI);
+        ctx.fillStyle = colors[u.cell];
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    function drawCellMetrics() {
+      const prof = techProfiles[currentTech];
+      const ids = ["cell-A","cell-B","cell-C"];
+      const cw = cellWidth();
+      for (let i = 0; i < 3; i++) {
+        const cellId = ids[i];
+        const ues = Object.values(uePositions).filter(u => u.cell === cellId);
+        if (ues.length) {
+          let n=0, rsrp=0, sinr=0, thr=0;
+          ues.forEach(u => {
+            const m = lastMetrics[u.id];
+            rsrp += m?.rsrp ?? randRange(...prof.rsrpRange);
+            sinr += m?.sinr ?? randRange(...prof.sinrRange);
+            thr  += m?.throughput ?? randRange(...prof.thrRange);
+            n++;
+          });
+          ctx.fillStyle = "#fff";
+          ctx.font = "13px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillText(
+            `${cellId}: RSRP ${(rsrp/n).toFixed(1)} dBm | SINR ${(sinr/n).toFixed(1)} dB | Thr ${(thr/n).toFixed(1)} Mbps`,
+            i*cw + 20, canvas.height - 20
+          );
+        }
+      }
+    }
+
+    function drawScene() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      drawCells();
+      updateUEs();
+      drawUEs();
+      drawCellMetrics();
+      requestAnimationFrame(drawScene);
+    }
+
+    // ===== Explain helpers (NEW) =====
+    const explainDiv  = document.getElementById("explain");
+    const explainBody = document.getElementById("explainBody");
+    function toggleExplain(show=true){ explainDiv.style.display = show ? 'block' : 'none'; }
+    function fmt(x, digits=1){ if (x===undefined||x===null||isNaN(x)) return "-"; return Number(x).toFixed(digits); }
+
+    function renderExplain(ueId, m){
+      // Auto-show on first metric
+      if (explainDiv.style.display !== 'block') toggleExplain(true);
+
+      const tech  = (m.tech || "").toUpperCase();
+      const cell  = m.cell || "-";
+      const sinr  = m.sinr ?? m.sinr_db;
+      const rsrp  = m.rsrp_dbm;
+      const rssi  = m.rssi_dbm;
+      const noise = m.noise_dbm;
+
+      const thr   = m.throughput_mbps;
+      const lat   = m.latency_ms;
+      const jit   = m.jitter_ms;
+      const loss  = m.loss_pct;
+      const cqi   = m.cqi;
+      const prb   = m.prb_util;
+
+      explainBody.innerHTML = `
+        <div class="row"><span class="pill">UE</span> ${ueId}</div>
+        <div class="row"><span class="pill">Tech</span> ${tech} &nbsp; <span class="pill">Cell</span> ${cell}</div>
+
+        <div class="row"><strong>Radio chain</strong></div>
+        <div class="row">RSSI ≈ <b>${fmt(rssi,1)} dBm</b> &nbsp; | &nbsp; Noise ≈ <b>${fmt(noise,1)} dBm</b></div>
+        <div class="row">RSRP ≈ <b>${fmt(rsrp,1)} dBm</b> &nbsp; | &nbsp; SINR ≈ <b>${fmt(sinr,1)} dB</b> &nbsp; | &nbsp; CQI ≈ <b>${cqi ?? '-'}</b></div>
+
+        <div class="row"><strong>Load & mapping</strong></div>
+        <div class="row">PRB util ≈ <b>${fmt(prb*100,0)}%</b> → affects throughput & latency</div>
+
+        <div class="row"><strong>Core KPIs</strong></div>
+        <div class="row">Throughput ≈ <b>${fmt(thr,1)} Mbps</b></div>
+        <div class="row">Latency ≈ <b>${fmt(lat,1)} ms</b> &nbsp; | &nbsp; Jitter ≈ <b>${fmt(jit,1)} ms</b></div>
+        <div class="row">Loss ≈ <b>${fmt(loss,2)}%</b></div>
+
+        <div class="hint">
+          Values come from the selected technology’s profile (power, bandwidth, noise).
+          The simulator finds the nearest cell, applies path loss + small fading, computes RSSI→SINR,
+          estimates PRB load, then maps SINR & load to throughput, latency, jitter, and loss.
+        </div>
+      `;
+    }
+
+    // ===== Data I/O =====
+    async function refresh() {
+      const res = await fetch("/topology");
+      const data = await res.json();
+      if (!Object.keys(uePositions).length) spawnUEs(data.ues || []);
+      if (data.tech && data.tech.toLowerCase() !== currentTech) {
+        currentTech = data.tech.toLowerCase();
+        setActive('tech', currentTech);
+        updateTechVisuals(currentTech);
+      }
+      techText.textContent = "Tech: " + (data.tech || "N/A").toUpperCase();
+    }
+
+    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/metrics");
+    ws.onmessage = ev => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "metric") {
+        const m = msg.payload;
+        lastMetrics[m.ue] = m;
+        if (uePositions[m.ue]) uePositions[m.ue].cell = m.cell;
+
+        // NEW: update explain panel with the fresh metric
+        renderExplain(m.ue, m);
+      }
+    };
+
+    // ===== Actions =====
+    async function setTech(t) {
+      currentTech = t;
+      setActive('tech', t);
+      try {
+        await fetch("/tech/" + t, { method: "POST" });
+        updateTechVisuals(t);
+        showToast(`Tech set to ${t.toUpperCase()}`);
+        const prof = techProfiles[t];
+        for (const k in lastMetrics) {
+          lastMetrics[k].rsrp = randRange(...prof.rsrpRange);
+          lastMetrics[k].sinr = randRange(...prof.sinrRange);
+          lastMetrics[k].throughput = randRange(...prof.thrRange);
+        }
+      } catch (e) {
+        showToast("Failed to set tech");
+      }
+    }
+
+    async function fault(f) {
+      currentFault = f;
+      setActive('fault', f);
+      try {
+        await fetch("/fault/" + f, { method: "POST" });
+        updateFaultBadge(f);
+        showToast(`Fault = ${faultText.textContent.replace('Fault: ','')}`);
+      } catch (e) {
+        showToast("Failed to set fault");
+      }
+    }
+
+    document.querySelectorAll('[data-group="tech"]').forEach(btn => {
+      btn.addEventListener('click', () => setTech(btn.dataset.val));
+      btn.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setTech(btn.dataset.val);} });
+    });
+    document.querySelectorAll('[data-group="fault"]').forEach(btn => {
+      btn.addEventListener('click', () => fault(btn.dataset.val));
+      btn.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fault(btn.dataset.val);} });
+    });
+
+    // ===== Utils =====
+    function randRange(min, max) { return Math.random() * (max - min) + min; }
+
+    // Startup
+    updateTechVisuals("5g");
+    updateFaultBadge("none");
+    refresh();
+    drawScene();
+  </script>
+</body>
+</html>
