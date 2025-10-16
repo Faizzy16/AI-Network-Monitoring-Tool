@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>AI Monitor (Global Status)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; background: #0b1020; color: #e4e7ef; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+    .card { background: #121833; border: 1px solid #1f2a54; border-radius: 14px; padding: 12px; height: 240px; display:flex; flex-direction:column; }
+    .wide { grid-column: 1 / -1; height: 160px; display:flex; align-items:center; justify-content:space-between; padding: 16px 20px; }
+    .big { font-size: 24px; font-weight: 700; }
+    .meta { font-size: 14px; opacity: .9; }
+    canvas { flex: 1; max-height: 170px; background: #0f1533; border-radius: 8px; padding: 4px; }
+    .pill { padding: 3px 6px; border: 1px solid #445; border-radius: 999px; margin-right: 4px; font-size: 11px; }
+    .tiny { font-size: 11px; opacity: .8; }
+    .controls { margin-bottom:10px; display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .training { color: #b5c7ff; margin-left: 8px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h2>AI-Driven Network Monitoring (Global 15s Status)</h2>
+
+  <div class="controls">
+    <button onclick="resetModels()">Reset AI Models</button>
+    <span id="banner" class="training"></span>
+    <span class="tiny">Update cadence: <b>15s</b></span>
+  </div>
+
+  <!-- Single global status card -->
+  <div class="grid">
+    <div class="card wide" id="statusCard">
+      <div>
+        <div id="sev" class="big">—</div>
+        <div id="statusLine" class="meta">Waiting for first rollup…</div>
+      </div>
+      <div style="text-align:right">
+        <div id="techLine" class="meta">Tech: —</div>
+        <div id="timeLine" class="tiny">—</div>
+      </div>
+    </div>
+
+    <div class="card"><h3>Latency (ms)</h3><canvas id="latency"></canvas></div>
+    <div class="card"><h3>Throughput (Mbps)</h3><canvas id="thr"></canvas></div>
+    <div class="card"><h3>Loss (%)</h3><canvas id="loss"></canvas></div>
+    <div class="card"><h3>MOS (Predicted)</h3><canvas id="mos"></canvas></div>
+  </div>
+
+  <script>
+    function makeChart(id, yTitle){
+      return new Chart(document.getElementById(id).getContext('2d'), {
+        type: 'line',
+        data: { labels: [], datasets: [{ data: [], tension: .25, borderWidth: 2, pointRadius: 0 }]},
+        options: {
+          animation: false, responsive: true, maintainAspectRatio: false,
+          scales: { x: { ticks: { display: false }}, y: { title: { display: true, text: yTitle } } },
+          plugins: { legend: { display: false } }
+        }
+      });
+    }
+    const charts = {
+      latency: makeChart('latency', 'ms'),
+      thr:     makeChart('thr', 'Mbps'),
+      loss:    makeChart('loss', '%'),
+      mos:     makeChart('mos', '1-5')
+    };
+    const maxPoints = 240; // ~1h at 15s
+
+    function push(c, v){
+      c.data.labels.push('');
+      c.data.datasets[0].data.push(v);
+      if (c.data.labels.length > maxPoints){
+        c.data.labels.shift();
+        c.data.datasets[0].data.shift();
+      }
+      c.update();
+    }
+
+    const banner = document.getElementById('banner');
+    const sev = document.getElementById('sev');
+    const statusLine = document.getElementById('statusLine');
+    const techLine = document.getElementById('techLine');
+    const timeLine = document.getElementById('timeLine');
+
+    function connectWS(){
+      const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+
+      ws.onopen = () => { setInterval(()=>{ try{ ws.send('ping'); }catch(e){} }, 15000); };
+      ws.onclose = () => { banner.textContent = '⚠️ Disconnected. Retrying…'; setTimeout(connectWS, 1500); };
+      ws.onerror = (e) => console.error('[WS] error', e);
+
+      ws.onmessage = (ev) => {
+        try{
+          const msg = JSON.parse(ev.data);
+          if (msg.type !== 'rollup') return; // we only expect global 15s rollups
+          const m = msg.payload;
+
+          // charts step once per 15s
+          push(charts.latency, m.latency_ms);
+          push(charts.thr,     m.throughput_mbps);
+          push(charts.loss,    m.loss_pct);
+          push(charts.mos,     m.mos);
+
+          // single status update (overwrite, not append)
+          sev.textContent = m.severity;
+          statusLine.textContent = m.summary.split('\n')[0]; // "Status: ..."
+          techLine.textContent = `Tech: ${m.tech.toUpperCase()}  •  MOS ${m.mos.toFixed(2)}  •  Anom ${(m.anomaly_rate*100).toFixed(1)}%`;
+          timeLine.textContent = new Date(m.ts*1000).toLocaleString();
+          banner.textContent = m.training ? '⚪ AI baseline training…' : '';
+        }catch(e){ console.error('[WS] parse fail', e); }
+      };
+    }
+    connectWS();
+
+    async function resetModels(){
+      try{
+        await fetch('/reset', {method:'POST'});
+        banner.textContent = '⚪ AI reset requested — collecting new baseline…';
+      }catch(e){
+        console.error('reset failed', e);
+      }
+    }
+  </script>
+</body>
+</html>
